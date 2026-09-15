@@ -321,6 +321,22 @@ SpeedMethods = {
 		local dt = math.max(options.Value.Value - entitylib.character.Humanoid.WalkSpeed, 0)
 		dt = dt * (1 - math.min((os.clock() % (options.PulseLength.Value + options.PulseDelay.Value)) / options.PulseLength.Value, 1))
 		root.AssemblyLinearVelocity = (moveDirection * (entitylib.character.Humanoid.WalkSpeed + dt)) + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+	end,
+	-- Heatseeker: pure CFrame, alternates 1/4 slider <-> 3/4 every 1s
+	Heatseeker = function(options, moveDirection, dt)
+		if not options._heatNext or os.clock() >= options._heatNext then
+			options._heatPhase = 1 - (options._heatPhase or 0)
+			options._heatNext = os.clock() + 1
+		end
+		local full = options.Value.Value
+		local low = full * 0.25
+		local high = full - low
+		local target = (options._heatPhase == 0) and low or high
+		-- reuse CFrame path with temporary Value
+		local oldVal = options.Value.Value
+		options.Value.Value = target
+		SpeedMethods.CFrame(options, moveDirection, dt)
+		options.Value.Value = oldVal
 	end
 }
 
@@ -2169,7 +2185,7 @@ run(function()
 		Name = 'Speed Mode',
 		List = SpeedMethodList,
 		Function = function(val)
-			WallCheck.Object.Visible = FloatMode.Value == 'CFrame' or FloatMode.Value == 'TP' or val == 'CFrame' or val == 'TP'
+			WallCheck.Object.Visible = FloatMode.Value == 'CFrame' or FloatMode.Value == 'TP' or val == 'CFrame' or val == 'TP' or val == 'Heatseeker'
 			Options.TPFrequency.Object.Visible = val == 'TP'
 			Options.PulseLength.Object.Visible = val == 'Pulse'
 			Options.PulseDelay.Object.Visible = val == 'Pulse'
@@ -2178,13 +2194,13 @@ run(function()
 				Fly:Toggle()
 			end
 		end,
-		Tooltip = 'Velocity - Uses smooth physics based movement\nImpulse - Same as velocity while using forces instead\nCFrame - Directly adjusts the position of the root\nTP - Large teleports within intervals\nPulse - Controllable bursts of speed\nWalkSpeed - The classic mode of speed, usually detected on most games.'
+		Tooltip = 'Velocity - Uses smooth physics based movement\nImpulse - Same as velocity while using forces instead\nCFrame - Directly adjusts the position of the root\nTP - Large teleports within intervals\nPulse - Controllable bursts of speed\nWalkSpeed - The classic mode of speed, usually detected on most games.\nHeatseeker - CFrame speed pulsing 1/4 then 3/4 of slider every 1s'
 	})
 	FloatMode = Fly:CreateDropdown({
 		Name = 'Float Mode',
 		List = {'Velocity', 'Impulse', 'CFrame', 'Bounce', 'Floor', 'Jump', 'TP'},
 		Function = function(val)
-			WallCheck.Object.Visible = Mode.Value == 'CFrame' or Mode.Value == 'TP' or val == 'CFrame' or val == 'TP'
+			WallCheck.Object.Visible = Mode.Value == 'CFrame' or Mode.Value == 'TP' or Mode.Value == 'Heatseeker' or val == 'CFrame' or val == 'TP'
 			BounceLength.Object.Visible = val == 'Bounce'
 			BounceDelay.Object.Visible = val == 'Bounce'
 			VerticalValue.Object.Visible = val ~= 'Floor'
@@ -3312,7 +3328,7 @@ run(function()
 		Name = 'Mode',
 		List = SpeedMethodList,
 		Function = function(val)
-			Options.WallCheck.Object.Visible = val == 'CFrame' or val == 'TP'
+			Options.WallCheck.Object.Visible = val == 'CFrame' or val == 'TP' or val == 'Heatseeker'
 			Options.TPFrequency.Object.Visible = val == 'TP'
 			Options.PulseLength.Object.Visible = val == 'Pulse'
 			Options.PulseDelay.Object.Visible = val == 'Pulse'
