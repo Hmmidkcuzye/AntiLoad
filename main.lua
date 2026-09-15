@@ -14,26 +14,46 @@ local isfile = isfile or function(file)
 	local suc, res = pcall(function()
 		return readfile(file)
 	end)
-	return suc and res ~= nil and res ~= ''
+	return suc and res \~= nil and res \~= ''
 end
 local cloneref = cloneref or function(obj)
 	return obj
 end
 local playersService = cloneref(game:GetService('Players'))
 
-local function downloadFile(path, func)
-	if not isfile(path) then
-		local suc, res = pcall(function()
-			return game:HttpGet('https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true)
-		end)
-		if not suc or res == '404: Not Found' then
-			error(res)
-		end
-		if path:find('.lua') then
-			res = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n'..res
-		end
-		writefile(path, res)
+local BASE_URL = shared.VapeCustomBase or 'https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/main'
+
+local function getCommit()
+	if isfile('newvape/profiles/commit.txt') then
+		local c = readfile('newvape/profiles/commit.txt')
+		if c and #c > 0 then return c end
 	end
+	return 'main'
+end
+
+local function resolveBase()
+	local url = BASE_URL
+	if url:find('7GrandDadPGN/VapeCompiled') and not url:find('/main') then
+		url = 'https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/' .. getCommit()
+	end
+	return url
+end
+
+local function downloadFile(path, func)
+	if isfile(path) then
+		return (func or readfile)(path)
+	end
+	if shared.VapeDeveloper then
+		error('VapeDeveloper: missing local file ' .. tostring(path))
+	end
+	local rel = select(1, path:gsub('newvape/', ''))
+	local suc, res = pcall(function()
+		return game:HttpGet(resolveBase() .. '/' .. rel, true)
+	end)
+	if not suc or res == '404: Not Found' then
+		error(res)
+	end
+	writefile(path, res)
 	return (func or readfile)(path)
 end
 
@@ -52,18 +72,25 @@ local function finishLoading()
 		if (not teleportedServers) and (not shared.VapeIndependent) then
 			teleportedServers = true
 			local teleportScript = [[
-				shared.vapereload = true
-				if shared.VapeDeveloper then
-					loadstring(readfile('newvape/loader.lua'), 'loader')()
-				else
-					loadstring(game:HttpGet('https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true), 'loader')()
-				end
-			]]
+shared.vapereload = true
+if shared.VapeCustomBase then
+	shared.VapeCustomBase = ']] .. tostring(BASE_URL):gsub("'", '') .. [['
+end
+if shared.VapeDeveloper then
+	loadstring(readfile('newvape/loader.lua'), 'loader')()
+else
+	local base = shared.VapeCustomBase or 'https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/main'
+	loadstring(game:HttpGet(base..'/loader.lua', true), 'loader')()
+end
+]]
 			if shared.VapeDeveloper then
-				teleportScript = 'shared.VapeDeveloper = true\n'..teleportScript
+				teleportScript = 'shared.VapeDeveloper = true\n' .. teleportScript
 			end
 			if shared.VapeCustomProfile then
-				teleportScript = 'shared.VapeCustomProfile = "'..shared.VapeCustomProfile..'"\n'..teleportScript
+				teleportScript = 'shared.VapeCustomProfile = "' .. shared.VapeCustomProfile .. '"\n' .. teleportScript
+			end
+			if shared.VapeCustomBase then
+				teleportScript = 'shared.VapeCustomBase = "' .. tostring(BASE_URL):gsub('"', '') .. '"\n' .. teleportScript
 			end
 			vape:Save()
 			queue_on_teleport(teleportScript)
@@ -73,7 +100,7 @@ local function finishLoading()
 	if not shared.vapereload then
 		if not vape.Categories then return end
 		if vape.Settings.GUI.Options['GUI bind indicator'].Enabled then
-			vape:CreateNotification('Finished Loading', vape.VapeButton and 'Press the button in the top right to open GUI' or 'Press '..table.concat(vape.GUIBind.Keys, ' + '):upper()..' to open GUI', 5)
+			vape:CreateNotification('Finished Loading', vape.VapeButton and 'Press the button in the top right to open GUI' or 'Press ' .. table.concat(vape.GUIBind.Keys, ' + '):upper() .. ' to open GUI', 5)
 		end
 	end
 end
@@ -81,23 +108,23 @@ end
 if not isfile('newvape/profiles/gui.txt') then
 	writefile('newvape/profiles/gui.txt', 'new')
 end
-local gui = 'new'--readfile('newvape/profiles/gui.txt')
+local gui = 'new'
 
-if not isfolder('newvape/assets/'..gui) then
-	makefolder('newvape/assets/'..gui)
+if not isfolder('newvape/assets/' .. gui) then
+	makefolder('newvape/assets/' .. gui)
 end
-vape = loadstring(downloadFile('newvape/guis/'..gui..'.lua'), 'gui')()
+vape = loadstring(downloadFile('newvape/guis/' .. gui .. '.lua'), 'gui')()
 shared.vape = vape
 
 if not shared.VapeIndependent then
 	loadstring(downloadFile('newvape/games/universal.lua'), 'universal')()
-	if isfile('newvape/games/'..game.PlaceId..'.lua') then
-		loadstring(readfile('newvape/games/'..game.PlaceId..'.lua'), tostring(game.PlaceId))(...)
+	if isfile('newvape/games/' .. game.PlaceId .. '.lua') then
+		loadstring(readfile('newvape/games/' .. game.PlaceId .. '.lua'), tostring(game.PlaceId))()
 	else
 		if not shared.VapeDeveloper then
-			local success, data = pcall(downloadFile, 'newvape/games/'..game.PlaceId..'.lua')
+			local success, data = pcall(downloadFile, 'newvape/games/' .. game.PlaceId .. '.lua')
 			if success then
-				loadstring(data, tostring(game.PlaceId))(...)
+				loadstring(data, tostring(game.PlaceId))()
 			end
 		end
 	end
