@@ -27,6 +27,7 @@ local coreGui = cloneref(game:GetService('CoreGui'))
 local gameCamera = workspace.CurrentCamera
 local lplr = playersService.LocalPlayer
 local vape = shared.vape
+
 local entitylib = vape.Libraries.entity
 local whitelist = vape.Libraries.whitelist
 local targetinfo = vape.Libraries.targetinfo
@@ -261,6 +262,15 @@ run(function()
 		if vape.Settings.Modules.Options['Teams by server'].Enabled and (not skip or lplr.Team == teams.Guards) then
 			return lplr.Team ~= entity.Player.Team and entity.Player.Team ~= teams.Neutral
 		end
+		return true
+	end
+
+	entitylib.teamAllowed = function(entity, teamOpts)
+		if not entity.Player or not teamOpts then return true end
+		local t = entity.Player.Team
+		if t == teams.Guards then return teamOpts.Guards end
+		if t == teams.Inmates then return teamOpts.Inmates end
+		if t == teams.Criminals then return teamOpts.Criminals end
 		return true
 	end
 
@@ -698,10 +708,16 @@ run(function()
 	local Range
 	local HitChance
 	local HeadshotChance
+	local MissOnPurpose = {Enabled = false}
+	local MissChance
+	local MissOffset
+	local TeamGuards = {Enabled = true}
+	local TeamInmates = {Enabled = true}
+	local TeamCriminals = {Enabled = true}
 	local AutoFire = {Enabled = false}
 	local AutoFireRate
 	local AutoFireTaser
-	local AutoFireSwitch
+	local AutoFireSwitch = {Enabled = false}
 	local Wallbang
 	local CircleColor
 	local CircleTransparency
@@ -775,13 +791,22 @@ run(function()
 			Range = Mode.Value == 'Position' and math.min(Range.Value, limit) or Range.Value,
 			RangePosition = limit,
 			AttackCheck = attackcheck,
-			Wallcheck = Target.Walls.Enabled and true or nil,
+			Wallcheck = Target.Walls.Enabled or nil,
 			Wallbang = Wallbang.Enabled and entitylib.character.RootPart.Position or nil,
 			Part = targetPart,
 			Origin = origin,
 			Players = Target.Players.Enabled,
 			NPCs = Target.NPCs.Enabled
 		})
+
+		local teamOpts = {
+			Guards = TeamGuards.Enabled,
+			Inmates = TeamInmates.Enabled,
+			Criminals = TeamCriminals.Enabled,
+		}
+		if entity and not entitylib.teamAllowed(entity, teamOpts) then
+			return
+		end
 
 		if entity then
 			targetinfo.Targets[entity] = tick() + 1
@@ -861,12 +886,21 @@ run(function()
 								Range = Mode.Value == 'Position' and math.min(Range.Value, limit) or Range.Value,
 								RangePosition = limit,
 								AttackCheck = not taser,
-								Wallcheck = Target.Walls.Enabled and true or nil,
+								Wallcheck = Target.Walls.Enabled or nil,
 								Wallbang = Wallbang.Enabled and entitylib.isAlive and entitylib.character.RootPart.Position or nil,
 								Part = 'Head',
 								Origin = entitylib.isAlive and entitylib.character.Head.Position or Vector3.zero,
 								Players = Target.Players.Enabled
 							})
+
+							local teamOpts = {
+								Guards = TeamGuards.Enabled,
+								Inmates = TeamInmates.Enabled,
+								Criminals = TeamCriminals.Enabled,
+							}
+							if entity and not entitylib.teamAllowed(entity, teamOpts) then
+								entity = nil
+							end
 
 							if entity and entitylib.character.Humanoid.Health > 0 then
 								local ammo = (tool:GetAttribute('Local_CurrentAmmo') or 0)
@@ -912,6 +946,9 @@ run(function()
 		Players = true,
 		Walls = true
 	})
+	TeamGuards = SilentAim:CreateToggle({ Name = 'Target Guards', Default = true })
+	TeamInmates = SilentAim:CreateToggle({ Name = 'Target Inmates', Default = true })
+	TeamCriminals = SilentAim:CreateToggle({ Name = 'Target Criminals', Default = true })
 	Mode = SilentAim:CreateDropdown({
 		Name = 'Mode',
 		List = {'Mouse', 'Position'},
@@ -949,6 +986,23 @@ run(function()
 		Max = 100,
 		Default = 65,
 		Suffix = '%'
+	})
+	MissOnPurpose = SilentAim:CreateToggle({
+		Name = 'Miss On Purpose',
+		Function = function(callback)
+			MissChance.Object.Visible = callback
+			MissOffset.Object.Visible = callback
+		end,
+		Tooltip = 'Intentionally miss some shots for closet cheating.'
+	})
+	MissChance = SilentAim:CreateSlider({
+		Name = 'Miss Chance', Min = 0, Max = 100, Default = 25,
+		Visible = false, Darker = true, Suffix = '%'
+	})
+	MissOffset = SilentAim:CreateSlider({
+		Name = 'Miss Offset', Min = 1, Max = 12, Default = 3,
+		Visible = false, Darker = true,
+		Suffix = function(val) return val == 1 and 'stud' or 'studs' end
 	})
 	AutoFire = SilentAim:CreateToggle({
 		Name = 'AutoFire',
@@ -1119,7 +1173,7 @@ run(function()
 	local modified = {}
 	
 	local function Modify(part)
-		if part:IsA('BasePart') and part.CollisionGroup ~= 'Wheels' then
+		if part:IsA('BasePart') and part.CollisionGroup == 'Vehicles' then
 			if not modified[part] then
 				modified[part] = part.CanCollide
 			end
@@ -1558,12 +1612,46 @@ end)
 
 run(function()
 	local FenceGodmode
-	
+	local modified = {}
+
+	local function getFences()
+		local folder = workspace:FindFirstChild('Prison_Fences')
+		if not folder then return {} end
+		local list = {}
+		for _, fence in folder:QueryDescendants('BasePart:has(> TouchTransmitter)') do
+			table.insert(list, fence)
+		end
+		return list
+	end
+
+	local function apply(state)
+		for _, fence in getFences() do
+			if modified[fence] == nil then modified[fence] = fence.CanTouch end
+			fence.CanTouch = state and false or (modified[fence] ~= nil and modified[fence] or true)
+		end
+		if not state then table.clear(modified) end
+	end
+
 	FenceGodmode = vape.Categories.Blatant:CreateModule({
 		Name = 'FenceGodmode',
 		Function = function(callback)
-			for _, fence in workspace.Prison_Fences:QueryDescendants('BasePart:has(> TouchTransmitter)') do
-				fence.CanTouch = not callback
+			if callback then
+				apply(true)
+				local folder = workspace:FindFirstChild('Prison_Fences')
+				if folder then
+					FenceGodmode:Clean(folder.DescendantAdded:Connect(function(obj)
+						if obj:IsA('BasePart') and obj:FindFirstChildWhichIsA('TouchTransmitter') then
+							if modified[obj] == nil then modified[obj] = obj.CanTouch end
+							obj.CanTouch = false
+						elseif obj:IsA('TouchTransmitter') and obj.Parent and obj.Parent:IsA('BasePart') then
+							local part = obj.Parent
+							if modified[part] == nil then modified[part] = part.CanTouch end
+							part.CanTouch = false
+						end
+					end))
+				end
+			else
+				apply(false)
 			end
 		end,
 		Tooltip = 'Ignore damage from standing ontop of fences.'
@@ -1649,6 +1737,10 @@ run(function()
 	local AngleSlider
 	local Max
 	local Mouse
+	local AutoSwitch = {Enabled = false}
+	local KATeamGuards = {Enabled = true}
+	local KATeamInmates = {Enabled = true}
+	local KATeamCriminals = {Enabled = true}
 	local BoxSwingColor
 	local BoxAttackColor
 	local ParticleTexture
@@ -1660,6 +1752,37 @@ run(function()
 	Overlay.FilterType = Enum.RaycastFilterType.Include
 	local Particles, Boxes, AttackDelay = {}, {}, tick()
 	
+	local meleePriority = {
+		['Knife'] = 1, ['Bat'] = 2, ['Hammer'] = 3, ['Crowbar'] = 4,
+	}
+	local meleeCooldown = {}
+	local MELEE_CD = 0.45
+	local function isMeleeReady(tool)
+		local readyAt = meleeCooldown[tool]
+		return not readyAt or readyAt <= os.clock()
+	end
+	local function markMeleeUsed(tool)
+		if tool then meleeCooldown[tool] = os.clock() + MELEE_CD end
+	end
+	local function getNextMelee()
+		local list = {}
+		local function consider(tool)
+			if tool:IsA('Tool') and meleePriority[tool.Name] then table.insert(list, tool) end
+		end
+		if entitylib.isAlive then
+			for _, tool in lplr.Character:GetChildren() do consider(tool) end
+		end
+		local backpack = lplr:FindFirstChildWhichIsA('Backpack')
+		if backpack then
+			for _, tool in backpack:GetChildren() do consider(tool) end
+		end
+		table.sort(list, function(a, b) return (meleePriority[a.Name] or 99) < (meleePriority[b.Name] or 99) end)
+		for _, tool in list do
+			if isMeleeReady(tool) then return tool end
+		end
+		return list[1]
+	end
+
 	local function getAttackData()
 		if Mouse.Enabled then
 			if not inputService:IsMouseButtonPressed(0) then return false end
@@ -1672,6 +1795,7 @@ run(function()
 		Name = 'Killaura',
 		Function = function(callback)
 			if callback then
+				table.clear(meleeCooldown)
 				repeat
 					local canAttack = getAttackData()
 					local attacked = {}
@@ -1691,7 +1815,24 @@ run(function()
 						if #entities > 0 then
 							local selfpos = entitylib.character.RootPart.Position
 							local localfacing = entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
-	
+							local teamOpts = {
+								Guards = KATeamGuards.Enabled,
+								Inmates = KATeamInmates.Enabled,
+								Criminals = KATeamCriminals.Enabled,
+							}
+							local best, lastEquip
+							if AutoSwitch.Enabled then
+								best = getNextMelee()
+								if best then
+									lastEquip = lplr.Character:FindFirstChildWhichIsA('Tool')
+									if lastEquip ~= best then
+										entitylib.character.Humanoid:EquipTool(best)
+									else
+										lastEquip = nil
+									end
+									markMeleeUsed(best)
+								end
+							end
 							for _, entity in entities do
 								local delta = (entity.RootPart.Position - selfpos)
 								local angle = math.acos(localfacing:Dot((delta * Vector3.new(1, 0, 1)).Unit))
@@ -1699,14 +1840,17 @@ run(function()
 								if lplr.Team == teams.Guards and entity.Player.Team == teams.Inmates and not entity.Character:GetAttribute('Hostile') then
 									continue
 								end
-	
+								if not entitylib.teamAllowed(entity, teamOpts) then continue end
 								targetinfo.Targets[entity] = tick() + 1
-								table.insert(attacked, {
-									Entity = entity,
-									Check = BoxAttackColor
-								})
-	
+								table.insert(attacked, { Entity = entity, Check = BoxAttackColor })
 								replicatedStorage.meleeEvent:FireServer(entity.Player, 1, 1)
+							end
+							if AutoSwitch.Enabled then
+								if lastEquip then
+									entitylib.character.Humanoid:EquipTool(lastEquip)
+								elseif best then
+									entitylib.character.Humanoid:UnequipTools()
+								end
 							end
 						end
 					end
@@ -1746,6 +1890,9 @@ run(function()
 	Targets = Killaura:CreateTargets({
 		Players = true
 	})
+	KATeamGuards = Killaura:CreateToggle({ Name = 'Target Guards', Default = true })
+	KATeamInmates = Killaura:CreateToggle({ Name = 'Target Inmates', Default = true })
+	KATeamCriminals = Killaura:CreateToggle({ Name = 'Target Criminals', Default = true })
 	AttackRange = Killaura:CreateSlider({
 		Name = 'Attack range',
 		Min = 1,
@@ -1768,6 +1915,10 @@ run(function()
 		Default = 10
 	})
 	Mouse = Killaura:CreateToggle({Name = 'Require mouse down'})
+	AutoSwitch = Killaura:CreateToggle({
+		Name = 'Auto Switch', Default = false,
+		Tooltip = 'Cycle melee strongest→weakest; skips cooldown; loops.'
+	})
 	Killaura:CreateToggle({
 		Name = 'Show target',
 		Function = function(callback)
@@ -2798,7 +2949,7 @@ end)
 run(function()
 	local AutoPickup
 	local items = {}
-	local PickupList = {}
+	local pickupList = {Guard = {}, Prisoner = {}, Criminal = {}}
 	
 	local function AddPickup(pickup)
 		if pickup:IsA('Model') and pickup.Name ~= 'Model' and pickup:GetAttribute('ToolName') then
@@ -2807,11 +2958,6 @@ run(function()
 				pickup.Name == 'TouchGiver'
 			})
 		end
-	end
-	
-	local function hasTool(name, backpack)
-		local tool = lplr.Character:FindFirstChildWhichIsA('Tool')
-		return backpack:FindFirstChild(name) or tool and tool.Name == name and tool
 	end
 	
 	AutoPickup = vape.Categories.Inventory:CreateModule({
@@ -2845,15 +2991,23 @@ run(function()
 							for _, pickup in items do
 								if pickup[1].PrimaryPart and (pickup[1].PrimaryPart.Position - localpos).Magnitude < 12 then
 									local tool = pickup[1]:GetAttribute('ToolName')
-									if hasTool(tool, backpack) then
-										continue
+									if pickup[2] then
+										local found = false
+										for _, entry in pickupList[lplr.Team == teams.Guards and 'Guard' or (lplr.Team == teams.Criminals and 'Criminal' or 'Prisoner')] do
+											if not backpack:FindFirstChild(entry) then
+												found = tool ~= entry
+												break
+											end
+										end
+	
+										if found then
+											continue
+										end
 									end
 	
-									if pickup[2] and not table.find(PickupList[lplr.Team == teams.Guards and 'Guard' or (lplr.Team == teams.Criminals and 'Criminal' or 'Prisoner')].ListEnabled, tool) then
-										continue
+									if not backpack:FindFirstChild(tool) then
+										replicatedStorage.Remotes.GiverPressed:FireServer(pickup[1])
 									end
-	
-									replicatedStorage.Remotes.GiverPressed:FireServer(pickup[1])
 								end
 							end
 						end
@@ -2869,10 +3023,19 @@ run(function()
 	})
 	
 	for _, team in {'Prisoner', 'Guard', 'Criminal'} do
-		PickupList[team] = AutoPickup:CreateTextList({
-			Name = team,
-			Default = {team == 'Criminal' and 'AK-47' or 'MP5', 'Remington 870'},
-			Placeholder = 'item'
+		AutoPickup:CreateTextList({
+			Name = team..' Pickups',
+			Default = {team == 'Criminal' and '1/AK-47' or '1/MP5', '2/Remington 870'},
+			Placeholder = 'priority/item',
+			Function = function(list)
+				table.clear(pickupList[team])
+	
+				for _, entry in list do
+					local data = entry:split('/')
+					local index = tonumber(data[1])
+					pickupList[team][index or 999] = data[2]
+				end
+			end
 		})
 	end
 end)
@@ -3448,4 +3611,395 @@ run(function()
 		end,
 		Visible = false
 	})
+end)
+run(function()
+	local InfiniteAmmo
+	local oldReload
+
+	local function ModifyAmmo(tool)
+		if tool and tool:IsA('Tool') and tool:GetAttribute('FireRate') then
+			tool:SetAttribute('Local_CurrentAmmo', 999)
+			tool:SetAttribute('Local_ReloadSession', 0)
+		end
+	end
+
+	InfiniteAmmo = vape.Categories.Blatant:CreateModule({
+		Name = 'InfiniteAmmo',
+		Function = function(callback)
+			if callback then
+				if entitylib.isAlive then
+					ModifyAmmo(lplr.Character:FindFirstChildWhichIsA('Tool'))
+				end
+				InfiniteAmmo:Clean(entitylib.Events.LocalAdded:Connect(function(ent)
+					if ent.Character then
+						InfiniteAmmo:Clean(ent.Character.ChildAdded:Connect(function(child)
+							if child:IsA('Tool') then task.defer(ModifyAmmo, child) end
+						end))
+					end
+				end))
+				InfiniteAmmo:Clean(runService.Heartbeat:Connect(function()
+					if entitylib.isAlive then
+						local tool = lplr.Character:FindFirstChildWhichIsA('Tool')
+						if tool and tool:GetAttribute('FireRate') then
+							if (tool:GetAttribute('Local_CurrentAmmo') or 0) < 50 then
+								tool:SetAttribute('Local_CurrentAmmo', 999)
+							end
+							if (tool:GetAttribute('Local_ReloadSession') or 0) > 0 then
+								tool:SetAttribute('Local_ReloadSession', 0)
+							end
+						end
+					end
+				end))
+				if pl.Reload then
+					oldReload = hookfunction(pl.Reload, function(...)
+						ModifyAmmo(debug.getupvalue(pl.Shoot, 1))
+						return
+					end)
+				end
+			else
+				if oldReload then
+					if restorefunction then restorefunction(pl.Reload) else hookfunction(pl.Reload, oldReload) end
+					oldReload = nil
+				end
+			end
+		end,
+		Tooltip = 'Never run out of bullets.'
+	})
+end)
+
+run(function()
+	local function makeGunPickup(moduleName, pos, wantedGuns, tooltip)
+		local mod
+		local returnCFrame
+		local function grabNearby()
+			if not entitylib.isAlive then return end
+			local localpos = entitylib.character.RootPart.Position
+			local backpack = lplr:FindFirstChildWhichIsA('Backpack')
+			if not backpack then return end
+			local function tryGrab(pickup)
+				if not (pickup:IsA('Model') and pickup.Name ~= 'Model' and pickup:GetAttribute('ToolName')) then return end
+				local part = pickup.PrimaryPart or pickup:FindFirstChildWhichIsA('BasePart')
+				if not part or (part.Position - localpos).Magnitude >= 20 then return end
+				local tool = pickup:GetAttribute('ToolName')
+				if tool and wantedGuns[tool] and not backpack:FindFirstChild(tool) and not lplr.Character:FindFirstChild(tool) then
+					replicatedStorage.Remotes.GiverPressed:FireServer(pickup)
+				end
+			end
+			for _, pickup in workspace:GetChildren() do tryGrab(pickup) end
+			for _, pickup in workspace:QueryDescendants('Model > .TouchGiver') do tryGrab(pickup) end
+		end
+		mod = vape.Categories.Utility:CreateModule({
+			Name = moduleName,
+			Function = function(callback)
+				if callback then
+					if not entitylib.isAlive then
+						notif(moduleName, 'Not alive', 3)
+						mod:Toggle()
+						return
+					end
+					local root = entitylib.character.RootPart
+					returnCFrame = root.CFrame
+					root.CFrame = CFrame.new(pos)
+					root.AssemblyLinearVelocity = Vector3.zero
+					notif(moduleName, 'Grabbing...', 2)
+					task.wait(0.3)
+					for i = 1, 10 do
+						if entitylib.isAlive then
+							root = entitylib.character.RootPart
+							root.CFrame = CFrame.new(pos)
+						end
+						grabNearby()
+						task.wait(0.12)
+					end
+					if entitylib.isAlive and returnCFrame then
+						root = entitylib.character.RootPart
+						root.CFrame = returnCFrame
+						root.AssemblyLinearVelocity = Vector3.zero
+					end
+					notif(moduleName, 'Done', 2)
+					mod:Toggle()
+				end
+			end,
+			Tooltip = tooltip
+		})
+		return mod
+	end
+
+	makeGunPickup('PickupPoliceGuns', Vector3.new(818.428, 98.000, 2221.753), {
+		['Remington 870'] = true, ['MP5'] = true
+	}, 'TP to police guns, grabs Remington/MP5, returns.')
+
+	makeGunPickup('PickupCriminalGuns', Vector3.new(-934.074, 94.129, 2031.433), {
+		['Remington 870'] = true, ['AK-47'] = true
+	}, 'TP to criminal guns, grabs Remington/AK-47, returns.')
+end)
+
+run(function()
+	local Bodyguard
+	local ProtectedPlayer
+	local MainWeapon
+	local TargetPart
+	local Range
+	local FaceTarget
+	local FormationSide
+	local TargetGuards
+	local TargetInmates
+	local TargetCriminals
+	local OffsetSide, OffsetBack = 4, 2.5
+	local savedCombat = {}
+	local combatNames = {'SilentAim', 'Killaura', 'TriggerBot'}
+	local currentThreatPart, bgOldBullet
+
+	local function playerNames()
+		local list = {'None'}
+		for _, plr in playersService:GetPlayers() do
+			if plr ~= lplr then table.insert(list, plr.Name) end
+		end
+		table.sort(list, function(a, b)
+			if a == 'None' then return true end
+			if b == 'None' then return false end
+			return a:lower() < b:lower()
+		end)
+		return list
+	end
+
+	local function getProtected()
+		local name = ProtectedPlayer.Value
+		if not name or name == 'None' then return nil end
+		return playersService:FindFirstChild(name)
+	end
+
+	local function getGun()
+		local name = MainWeapon.Value
+		if entitylib.isAlive then
+			local held = lplr.Character:FindFirstChild(name)
+			if held and held:IsA('Tool') then return held end
+		end
+		local backpack = lplr:FindFirstChildWhichIsA('Backpack')
+		if backpack then
+			local t = backpack:FindFirstChild(name)
+			if t and t:IsA('Tool') then return t end
+		end
+	end
+
+	local function findModule(name)
+		for _, catName in {'Combat', 'Blatant', 'Utility', 'Legit', 'Render', 'Inventory'} do
+			local cat = vape.Categories[catName]
+			if cat and cat.Modules and cat.Modules[name] then return cat.Modules[name] end
+		end
+	end
+
+	local function disableCombat()
+		table.clear(savedCombat)
+		for _, name in combatNames do
+			local mod = findModule(name)
+			if mod and mod.Enabled then savedCombat[name] = true; mod:Toggle() end
+		end
+	end
+
+	local function restoreCombat()
+		for name in savedCombat do
+			local mod = findModule(name)
+			if mod and not mod.Enabled then mod:Toggle() end
+		end
+		table.clear(savedCombat)
+	end
+
+	local function formationPos(protectRoot)
+		local look = protectRoot.CFrame.LookVector * Vector3.new(1, 0, 1)
+		look = look.Magnitude < 0.05 and Vector3.new(0, 0, -1) or look.Unit
+		local right = Vector3.new(-look.Z, 0, look.X)
+		local sideSign = (FormationSide and FormationSide.Value == 'Left') and -1 or 1
+		return protectRoot.Position - look * OffsetBack + right * (OffsetSide * sideSign), look
+	end
+
+	local function teamOpts()
+		return { Guards = TargetGuards.Enabled, Inmates = TargetInmates.Enabled, Criminals = TargetCriminals.Enabled }
+	end
+
+	local function isProtectedEntity(ent)
+		local protect = getProtected()
+		if not protect or not ent or not ent.Player then return false end
+		return ent.Player == protect or ent.Player.Name == protect.Name or ent.Player.UserId == protect.UserId
+	end
+
+	local losParams = RaycastParams.new()
+	losParams.FilterType = Enum.RaycastFilterType.Exclude
+	losParams.IgnoreWater = true
+
+	local function hasLineOfSight(origin, targetPart, targetChar)
+		if not (origin and targetPart) then return false end
+		local ignore = {lplr.Character}
+		if targetChar then table.insert(ignore, targetChar) end
+		local protect = getProtected()
+		if protect and protect.Character then table.insert(ignore, protect.Character) end
+		losParams.FilterDescendantsInstances = ignore
+		local delta = targetPart.Position - origin
+		if delta.Magnitude < 0.5 then return false end
+		local hit = workspace:Raycast(origin, delta, losParams)
+		if not hit then return true end
+		if targetChar and hit.Instance:IsDescendantOf(targetChar) then return true end
+		return false
+	end
+
+	local function findThreat(origin)
+		local partName = TargetPart.Value
+		local opts = teamOpts()
+		local all = entitylib.AllPosition({
+			Range = Range.Value, Part = partName, Origin = origin,
+			Players = true, AttackCheck = true, Wallcheck = false, Limit = 15,
+		})
+		local best, bestPart, bestDist
+		for _, ent in all do
+			if isProtectedEntity(ent) then continue end
+			if not entitylib.teamAllowed(ent, opts) then continue end
+			if not entitylib.isVulnerable(ent, true) then continue end
+			local part = ent[partName] or ent.Head or ent.RootPart
+			if not part or not hasLineOfSight(origin, part, ent.Character) then continue end
+			local d = (part.Position - origin).Magnitude
+			if not bestDist or d < bestDist then best, bestPart, bestDist = ent, part, d end
+		end
+		return best, bestPart
+	end
+
+	local function bulletHook(...)
+		local args = table.pack(...)
+		local origin = args[1]
+		if currentThreatPart and currentThreatPart.Parent then
+			local entChar = currentThreatPart.Parent
+			if entChar and entChar:IsA('BasePart') then entChar = entChar.Parent end
+			local protect = getProtected()
+			if protect and protect.Character and entChar and entChar:IsDescendantOf(protect.Character) then
+				currentThreatPart = nil
+				return bgOldBullet(...)
+			end
+			if typeof(origin) == 'Vector3' and hasLineOfSight(origin, currentThreatPart, entChar) then
+				args[2] = currentThreatPart.Position
+				aimTimer = os.clock() + 0.25
+				aimVec = args[2]
+				return bgOldBullet(unpack(args, 1, args.n))
+			end
+		end
+		return bgOldBullet(...)
+	end
+
+	local function tryShoot()
+		if not (pl.Shoot and entitylib.isAlive and currentThreatPart and currentThreatPart.Parent) then return end
+		local protect = getProtected()
+		if protect and protect.Character and currentThreatPart:IsDescendantOf(protect.Character) then
+			currentThreatPart = nil
+			return
+		end
+		local gun = getGun()
+		if not gun then return end
+		if (gun:GetAttribute('Local_CurrentAmmo') or 1) <= 0 then return end
+		if gun:GetAttribute('Local_IsShooting') then return end
+		local held = lplr.Character:FindFirstChildWhichIsA('Tool')
+		if held ~= gun then
+			entitylib.character.Humanoid:EquipTool(gun)
+			task.wait(0.05)
+		end
+		local obj = { UserInputState = Enum.UserInputState.Begin, UserInputType = Enum.UserInputType.MouseButton1, Position = Vector3.zero }
+		task.spawn(pl.Shoot, obj)
+		obj.UserInputState = Enum.UserInputState.End
+	end
+
+	Bodyguard = vape.Categories.Utility:CreateModule({
+		Name = 'Bodyguard',
+		Function = function(callback)
+			if callback then
+				local protect = getProtected()
+				if not protect then notif('Bodyguard', 'Pick a protected player first', 4); Bodyguard:Toggle(); return end
+				if not getGun() then notif('Bodyguard', 'Main weapon not in inventory: '..tostring(MainWeapon.Value), 5); Bodyguard:Toggle(); return end
+				if not pl.Bullet then notif('Bodyguard', 'Gun system not ready', 4); Bodyguard:Toggle(); return end
+				disableCombat()
+				currentThreatPart = nil
+				bgOldBullet = hookfunction(pl.Bullet, bulletHook)
+				notif('Bodyguard', 'Guarding '..protect.Name, 3)
+				local fireDelay = 0
+				repeat
+					protect = getProtected()
+					if not (protect and protect.Character) then currentThreatPart = nil; task.wait(0.15); continue end
+					local pRoot = protect.Character:FindFirstChild('HumanoidRootPart') or protect.Character.PrimaryPart
+					if not pRoot then task.wait(0.1); continue end
+					if entitylib.isAlive then
+						local root = entitylib.character.RootPart
+						local hum = entitylib.character.Humanoid
+						local formPos, formLook = formationPos(pRoot)
+
+						if hum.Sit or hum.SeatPart then
+							hum.Sit = false
+							hum:ChangeState(Enum.HumanoidStateType.Running)
+						end
+						hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+
+						local gun = getGun()
+						if gun then
+							local held = lplr.Character:FindFirstChildWhichIsA('Tool')
+							if held ~= gun then hum:EquipTool(gun) end
+						end
+
+						local lookFlat = formLook
+						if currentThreatPart and currentThreatPart.Parent and FaceTarget.Enabled then
+							local tp = currentThreatPart.Position
+							local d = Vector3.new(tp.X, formPos.Y, tp.Z) - formPos
+							if d.Magnitude > 0.5 then lookFlat = d.Unit end
+						end
+
+						-- loop TP only
+						root.CFrame = CFrame.lookAt(formPos, formPos + lookFlat)
+						root.AssemblyLinearVelocity = Vector3.zero
+						root.AssemblyAngularVelocity = Vector3.zero
+
+						local origin = (entitylib.character.Head and entitylib.character.Head.Position) or root.Position
+						local threat, threatPart = findThreat(origin)
+						if threatPart and protect.Character and threatPart:IsDescendantOf(protect.Character) then
+							threat, threatPart = nil, nil
+						end
+						if threat and threatPart and hasLineOfSight(origin, threatPart, threat.Character) then
+							currentThreatPart = threatPart
+							if fireDelay < os.clock() then fireDelay = os.clock() + 0.12; tryShoot() end
+						else
+							currentThreatPart = nil
+						end
+					else
+						currentThreatPart = nil
+					end
+					task.wait(0.05)
+				until not Bodyguard.Enabled
+				currentThreatPart = nil
+				if entitylib.isAlive then entitylib.character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true) end
+				if bgOldBullet and pl.Bullet then
+					if restorefunction then pcall(restorefunction, pl.Bullet) else pcall(hookfunction, pl.Bullet, bgOldBullet) end
+					bgOldBullet = nil
+				end
+				restoreCombat()
+			else
+				currentThreatPart = nil
+				if entitylib.isAlive then entitylib.character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true) end
+				if bgOldBullet and pl.Bullet then
+					if restorefunction then pcall(restorefunction, pl.Bullet) else pcall(hookfunction, pl.Bullet, bgOldBullet) end
+					bgOldBullet = nil
+				end
+				restoreCombat()
+			end
+		end,
+		Tooltip = 'Follow protect via loop TP; SilentAim-style autofire. Disables SilentAim/Killaura/TriggerBot while on.'
+	})
+
+	ProtectedPlayer = Bodyguard:CreateDropdown({ Name = 'Protected Player', List = playerNames(), Function = function() end })
+	Bodyguard:Clean(playersService.PlayerAdded:Connect(function() pcall(function() ProtectedPlayer.List = playerNames() end) end))
+	Bodyguard:Clean(playersService.PlayerRemoving:Connect(function() pcall(function() ProtectedPlayer.List = playerNames() end) end))
+	FormationSide = Bodyguard:CreateDropdown({
+		Name = 'Formation Side',
+		List = {'Left', 'Right'},
+		Tooltip = 'Multiplayer: one alt Left, other Right.'
+	})
+	MainWeapon = Bodyguard:CreateDropdown({ Name = 'Main Weapon', List = {'MP5', 'AK-47', 'M4A1', 'Remington 870', 'M9', 'Revolver', 'M700', 'FAL'}, Function = function() end })
+	TargetPart = Bodyguard:CreateDropdown({ Name = 'Target Part', List = {'Head', 'RootPart'}, Function = function() end })
+	Range = Bodyguard:CreateSlider({ Name = 'Range', Min = 10, Max = 300, Default = 120, Suffix = function(v) return v == 1 and 'stud' or 'studs' end })
+	FaceTarget = Bodyguard:CreateToggle({ Name = 'Face Target', Default = true })
+	TargetGuards = Bodyguard:CreateToggle({ Name = 'Target Guards', Default = true })
+	TargetInmates = Bodyguard:CreateToggle({ Name = 'Target Inmates', Default = true })
+	TargetCriminals = Bodyguard:CreateToggle({ Name = 'Target Criminals', Default = true })
 end)
