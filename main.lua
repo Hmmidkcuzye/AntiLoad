@@ -78,27 +78,25 @@ local function finishLoading()
 	vape:Clean(playersService.LocalPlayer.OnTeleport:Connect(function()
 		if (not teleportedServers) and (not shared.VapeIndependent) then
 			teleportedServers = true
-			local teleportScript = [[
-shared.vapereload = true
-if shared.VapeCustomBase then
-	shared.VapeCustomBase = ']] .. tostring(BASE_URL):gsub("'", '') .. [['
-end
+			local base = tostring(BASE_URL):gsub('"', '')
+			local teleportScript = 'shared.vapereload = true\n'
+			if shared.VapeCustomBase then
+				teleportScript = teleportScript .. 'shared.VapeCustomBase = "' .. base .. '"\n'
+			end
+			if shared.VapeDeveloper then
+				teleportScript = teleportScript .. 'shared.VapeDeveloper = true\n'
+			end
+			if shared.VapeCustomProfile then
+				teleportScript = teleportScript .. 'shared.VapeCustomProfile = "' .. shared.VapeCustomProfile .. '"\n'
+			end
+			teleportScript = teleportScript .. [[
 if shared.VapeDeveloper then
 	loadstring(readfile('newvape/loader.lua'), 'loader')()
 else
-	local base = shared.VapeCustomBase or 'https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/main'
-	loadstring(game:HttpGet(base..'/loader.lua', true), 'loader')()
+	local b = shared.VapeCustomBase or 'https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/main'
+	loadstring(game:HttpGet(b..'/loader.lua', true), 'loader')()
 end
 ]]
-			if shared.VapeDeveloper then
-				teleportScript = 'shared.VapeDeveloper = true\n' .. teleportScript
-			end
-			if shared.VapeCustomProfile then
-				teleportScript = 'shared.VapeCustomProfile = "' .. shared.VapeCustomProfile .. '"\n' .. teleportScript
-			end
-			if shared.VapeCustomBase then
-				teleportScript = 'shared.VapeCustomBase = "' .. tostring(BASE_URL):gsub('"', '') .. '"\n' .. teleportScript
-			end
 			vape:Save()
 			queue_on_teleport(teleportScript)
 		end
