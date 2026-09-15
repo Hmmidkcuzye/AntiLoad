@@ -38,7 +38,6 @@ local function downloadFile(path, func)
 		error(res or ('failed download ' .. path))
 	end
 
-	
 	writefile(path, res)
 	return (func or readfile)(path)
 end
@@ -58,7 +57,5 @@ end
 if not isfile('newvape/profiles/asset.txt') then
 	writefile('newvape/profiles/asset.txt', '1')
 end
-
-
 
 return loadstring(downloadFile('newvape/main.lua'), 'main')()
