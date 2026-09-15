@@ -2,16 +2,29 @@ local isfile = isfile or function(file)
 	local suc, res = pcall(function()
 		return readfile(file)
 	end)
-	return suc and res \~= nil and res \~= ''
+	if not suc then
+		return false
+	end
+	if res == nil then
+		return false
+	end
+	if res == '' then
+		return false
+	end
+	return true
 end
 
 local BASE_URL = shared.VapeCustomBase
-	or 'https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/main'
+if not BASE_URL then
+	BASE_URL = 'https://raw.githubusercontent.com/7GrandDadPGN/VapeCompiled/main'
+end
 
 local function getCommit()
 	if isfile('newvape/profiles/commit.txt') then
 		local c = readfile('newvape/profiles/commit.txt')
-		if c and #c > 0 then return c end
+		if c and #c > 0 then
+			return c
+		end
 	end
 	return 'main'
 end
